@@ -1,0 +1,26 @@
+export const SIMULATION_CONFIG = {
+  MIN_WATER_LEVEL: 0,
+  MAX_WATER_LEVEL: 12,
+  TERRACE_HEIGHT: 5,
+  RIVER_BED_HEIGHT: 0,
+  FLOOD_SPEED_MULTIPLIER: 0.05,
+};
+
+export const COLORS = {
+  WATER: '#3b82f6',
+  WATER_SURFACE: '#60a5fa',
+  GRASS_LOW: '#4ade80',
+  GRASS_HIGH: '#15803d',
+  TERRACE_DIRT: '#a8a29e',
+  HOUSE_WALL: '#e2e8f0',
+  HOUSE_ROOF: '#ef4444',
+};
+
+// Procedural generation of house positions on the terrace
+export const HOUSE_POSITIONS = [
+  { id: 1, x: 8, z: -5, y: SIMULATION_CONFIG.TERRACE_HEIGHT, rotation: 0.1 },
+  { id: 2, x: 9, z: -1, y: SIMULATION_CONFIG.TERRACE_HEIGHT, rotation: -0.2 },
+  { id: 3, x: 7.5, z: 3, y: SIMULATION_CONFIG.TERRACE_HEIGHT, rotation: 0.3 },
+  { id: 4, x: 10, z: 6, y: SIMULATION_CONFIG.TERRACE_HEIGHT, rotation: 0 },
+  { id: 5, x: 8.5, z: -9, y: SIMULATION_CONFIG.TERRACE_HEIGHT, rotation: -0.1 },
+];
