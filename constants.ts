@@ -1,3 +1,5 @@
+
+
 export const SIMULATION_CONFIG = {
   MIN_WATER_LEVEL: 0,
   MAX_WATER_LEVEL: 12,
@@ -14,6 +16,12 @@ export const COLORS = {
   TERRACE_DIRT: '#a8a29e',
   HOUSE_WALL: '#e2e8f0',
   HOUSE_ROOF: '#ef4444',
+  HOUSE_ROOF_WET: '#475569', // Dark grey/slate for damaged roof
+  SOIL: '#574638', // Dark brown for the side of the terrain
+  CROP_1: '#facc15', // Wheat
+  CROP_2: '#84cc16', // Light green crops
+  POLE: '#78350f', // Wood
+  ROCK: '#57534e', // Stone grey
 };
 
 // Procedural generation of house positions on the terrace
