@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { SIMULATION_CONFIG } from '../constants';
 import { FloodStatus } from '../types';
@@ -8,8 +9,9 @@ interface ControlPanelProps {
   vegetationCoverage: number;
   setVegetationCoverage: (val: number) => void;
   waterLevel: number;
-  isRaining: boolean;
-  setIsRaining: (val: boolean) => void;
+  simTime: number;
+  isSimulating: boolean;
+  startSimulation: () => void;
   reset: () => void;
 }
 
@@ -19,8 +21,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   vegetationCoverage,
   setVegetationCoverage,
   waterLevel,
-  isRaining,
-  setIsRaining,
+  simTime,
+  isSimulating,
+  startSimulation,
   reset
 }) => {
   // Determine danger status
@@ -38,7 +41,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     bgColor = 'bg-red-500/20 border-red-500/50';
   }
 
-  const isTerraceFlooded = waterLevel >= SIMULATION_CONFIG.TERRACE_HEIGHT;
+  const isRaining = isSimulating && simTime <= 24;
 
   return (
     <div className="absolute top-4 left-4 z-10 w-80 md:w-96 p-6 rounded-2xl bg-slate-900/80 backdrop-blur-md border border-slate-700 shadow-xl text-white">
@@ -46,22 +49,45 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
           Valley Flood Sim
         </h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Simulate flood impact based on rainfall & land cover.
+        <p className="text-slate-400 text-xs mt-1">
+          Simulate a 24-hour rainfall event and observe drainage.
         </p>
       </div>
 
-      {/* Status Card */}
-      <div className={`mb-6 p-4 rounded-xl border ${bgColor} transition-colors duration-500`}>
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-sm font-semibold uppercase tracking-wider text-slate-200">Current Status</span>
-          <span className={`font-bold ${statusColor}`}>{status}</span>
+      {/* Dashboard Grid */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        {/* Status Card */}
+        <div className={`col-span-2 p-3 rounded-xl border ${bgColor} transition-colors duration-500 flex justify-between items-center`}>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-200 opacity-80">Water Level</div>
+            <div className="text-2xl font-mono font-bold mt-1">{waterLevel.toFixed(2)}m</div>
+          </div>
+          <div className="text-right">
+             <span className={`font-bold ${statusColor} px-2 py-1 rounded bg-black/20`}>{status}</span>
+          </div>
         </div>
-        <div className="flex items-end gap-2">
-            <div className="text-3xl font-mono font-bold">
-            {waterLevel.toFixed(2)}m
-            </div>
-            <div className="text-sm text-slate-300 mb-1.5">Water Level</div>
+
+        {/* Time Card */}
+        <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700">
+           <div className="text-xs text-slate-400 uppercase">Elapsed Time</div>
+           <div className="text-xl font-mono font-bold mt-1 text-blue-200">
+             {Math.floor(simTime)}h
+           </div>
+        </div>
+        
+        {/* Weather Card */}
+        <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700 flex items-center justify-center gap-2">
+           {isRaining ? (
+             <>
+               <span className="animate-pulse text-blue-400">🌧️</span>
+               <span className="font-semibold text-blue-100">Raining</span>
+             </>
+           ) : (
+             <>
+               <span className="text-yellow-400">☁️</span>
+               <span className="font-semibold text-slate-300">Overcast</span>
+             </>
+           )}
         </div>
       </div>
 
@@ -69,7 +95,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       <div className="space-y-6">
         
         {/* Rainfall Control */}
-        <div>
+        <div className={isSimulating ? 'opacity-50 pointer-events-none' : ''}>
           <label className="flex justify-between text-sm mb-2 text-slate-300">
             <span className="flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
@@ -77,7 +103,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 </svg>
                 24h Rainfall
             </span>
-            <span className="font-mono">{rainfall} mm</span>
+            <span className="font-mono text-blue-300">{rainfall} mm</span>
           </label>
           <input
             type="range"
@@ -89,13 +115,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 hover:accent-blue-400 transition-all"
           />
           <div className="flex justify-between text-xs text-slate-500 mt-1">
-            <span>Dry</span>
+            <span>Light</span>
             <span>Extreme</span>
           </div>
         </div>
 
         {/* Vegetation Control */}
-        <div>
+        <div className={isSimulating ? 'opacity-50 pointer-events-none' : ''}>
           <label className="flex justify-between text-sm mb-2 text-slate-300">
             <span className="flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
@@ -103,7 +129,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 </svg>
                 Vegetation Coverage
             </span>
-            <span className="font-mono">{Math.round(vegetationCoverage * 100)}%</span>
+            <span className="font-mono text-green-300">{Math.round(vegetationCoverage * 100)}%</span>
           </label>
           <input
             type="range"
@@ -115,21 +141,26 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-green-500 hover:accent-green-400 transition-all"
           />
           <div className="text-xs text-slate-500 mt-1">
-             Higher vegetation absorbs water, reducing flood height.
+             Higher vegetation reduces flood peak and speeds up drainage.
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={() => setIsRaining(!isRaining)}
-            className={`py-3 px-4 rounded-lg font-semibold transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 ${
-              isRaining 
-                ? 'bg-slate-600 text-white' 
-                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20'
-            }`}
-          >
-            {isRaining ? 'Pause Rain' : 'Start Simulation'}
-          </button>
+        <div className="grid grid-cols-2 gap-3 pt-2">
+          {!isSimulating ? (
+            <button
+              onClick={startSimulation}
+              className="py-3 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              Start 24h Cycle
+            </button>
+          ) : (
+            <button
+              disabled
+              className="py-3 px-4 rounded-lg bg-slate-700 text-slate-400 font-semibold cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              Simulating...
+            </button>
+          )}
           
           <button
             onClick={reset}
@@ -139,7 +170,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
           </button>
         </div>
       </div>
-      
     </div>
   );
 };
