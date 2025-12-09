@@ -1,5 +1,6 @@
 
-import React, { useRef, useMemo, useLayoutEffect } from 'react';
+
+import React, { useRef, useMemo, useLayoutEffect, useEffect } from 'react';
 import { Canvas, useFrame, ThreeElements } from '@react-three/fiber';
 import { OrbitControls, Environment, Float, Line, Instance, Instances } from '@react-three/drei';
 import * as THREE from 'three';
@@ -15,6 +16,8 @@ declare global {
 
 interface ValleySceneProps {
   waterLevel: number;
+  vegetationCoverage: number;
+  isRaining: boolean;
 }
 
 // Pseudo-random noise function for organic variety
@@ -175,26 +178,114 @@ const Terrain: React.FC = () => {
   );
 };
 
-// 2. SCATTERED ROCKS
+// 2. VEGETATION SYSTEM (Dynamic based on Coverage)
+const Vegetation: React.FC<{ coverage: number }> = ({ coverage }) => {
+  const allTrees = useMemo(() => {
+    const trees = [];
+    // Generate potential tree positions
+    const maxTrees = SIMULATION_CONFIG.MAX_VEGETATION_COUNT;
+    
+    for (let i = 0; i < maxTrees; i++) {
+      const x = (Math.random() - 0.5) * 48;
+      const z = (Math.random() - 0.5) * 48;
+      
+      // Filter locations:
+      // 1. Avoid River (x between -5 and 5)
+      // 2. Avoid Terrace Flat (x between 5 and 14)
+      if (x > -5 && x < 14) continue;
+      
+      const y = calculateHeight(x, z);
+      
+      // Randomize Scale
+      const scale = 0.5 + Math.random() * 0.8;
+      
+      trees.push({
+        position: [x, y, z] as [number, number, number],
+        scale: [scale, scale * (1 + Math.random()), scale] as [number, number, number],
+        rotation: [0, Math.random() * Math.PI, 0] as [number, number, number],
+        color: Math.random() > 0.5 ? COLORS.TREE_LIGHT : COLORS.TREE_DARK
+      });
+    }
+    return trees;
+  }, []);
+
+  // Determine how many to show based on coverage
+  const visibleCount = Math.floor(allTrees.length * coverage);
+
+  return (
+    <group>
+      <Instances range={visibleCount}>
+        <coneGeometry args={[0.5, 1.5, 7]} />
+        <meshStandardMaterial color={COLORS.TREE_DARK} roughness={0.9} />
+        {allTrees.map((data, i) => (
+          <group key={i} position={data.position} scale={data.scale} rotation={data.rotation}>
+            <Instance color={data.color} />
+          </group>
+        ))}
+      </Instances>
+    </group>
+  );
+};
+
+// 3. RAIN SYSTEM (Particles)
+const Rain: React.FC<{ enabled: boolean }> = ({ enabled }) => {
+  const count = 1500;
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  
+  // Initial positions
+  const particles = useMemo(() => {
+    const temp = [];
+    for (let i = 0; i < count; i++) {
+      const x = (Math.random() - 0.5) * 60;
+      const y = Math.random() * 40;
+      const z = (Math.random() - 0.5) * 60;
+      const speed = 0.5 + Math.random() * 0.5; // Fall speed
+      temp.push({ x, y, z, speed });
+    }
+    return temp;
+  }, []);
+
+  useFrame(() => {
+    if (!meshRef.current || !enabled) return;
+
+    const dummy = new THREE.Object3D();
+
+    particles.forEach((particle, i) => {
+      // Update position
+      particle.y -= particle.speed;
+      if (particle.y < -5) {
+        particle.y = 30 + Math.random() * 10;
+      }
+      
+      dummy.position.set(particle.x, particle.y, particle.z);
+      dummy.scale.set(0.05, 0.8, 0.05); // Thin streaks
+      dummy.updateMatrix();
+      meshRef.current!.setMatrixAt(i, dummy.matrix);
+    });
+    meshRef.current.instanceMatrix.needsUpdate = true;
+  });
+
+  if (!enabled) return null;
+
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, count]}>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshBasicMaterial color={COLORS.RAIN} transparent opacity={0.6} />
+    </instancedMesh>
+  );
+};
+
+// 4. SCATTERED ROCKS (Existing)
 const ScatteredRocks: React.FC = () => {
   const rockData = useMemo(() => {
     const rocks = [];
     const count = 60;
-    
     for (let i = 0; i < count; i++) {
-      const x = (Math.random() - 0.5) * 48; // -24 to 24
+      const x = (Math.random() - 0.5) * 48; 
       const z = (Math.random() - 0.5) * 48;
-      
       const h = calculateHeight(x, z);
-      
-      // Avoid placing rocks on the main housing terrace flat area
-      // Terrace is roughly x: 6 to 13
       if (x > 6 && x < 13) continue;
-
-      // Prefer riverbed and slopes
-      // Random scale
       const s = 0.2 + Math.random() * 0.4;
-      
       rocks.push({ position: [x, h, z], scale: s, rotation: [Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI] });
     }
     return rocks;
@@ -213,7 +304,7 @@ const ScatteredRocks: React.FC = () => {
   );
 };
 
-// 3. CROPS (Farmland on Terrace)
+// 5. CROPS (Existing)
 const Crops: React.FC = () => {
   const patches = useMemo(() => {
     const items = [];
@@ -222,14 +313,9 @@ const Crops: React.FC = () => {
       { cx: 12, cz: -15, w: 3, d: 8, color: COLORS.CROP_2 },
       { cx: 11, cz: 15, w: 4, d: 5, color: COLORS.CROP_1 },
     ];
-
     for (const p of patchLocations) {
       items.push(
-        <mesh 
-          key={`${p.cx}-${p.cz}`} 
-          position={[p.cx, SIMULATION_CONFIG.TERRACE_HEIGHT + 0.05, p.cz]} 
-          receiveShadow
-        >
+        <mesh key={`${p.cx}-${p.cz}`} position={[p.cx, SIMULATION_CONFIG.TERRACE_HEIGHT + 0.05, p.cz]} receiveShadow>
           <boxGeometry args={[p.w, 0.2, p.d]} />
           <meshStandardMaterial color={p.color} roughness={1} />
         </mesh>
@@ -237,11 +323,10 @@ const Crops: React.FC = () => {
     }
     return items;
   }, []);
-
   return <group>{patches}</group>;
 };
 
-// 4. UTILITY POLES
+// 6. UTILITY POLES (Existing)
 const UtilityPoles: React.FC = () => {
   const poles = useMemo(() => {
     const items = [];
@@ -250,7 +335,6 @@ const UtilityPoles: React.FC = () => {
     const zEnd = 20;
     const count = 6;
     const step = (zEnd - zStart) / (count - 1);
-    
     const poleHeight = 4;
     const poleCoords: [number, number, number][] = [];
 
@@ -258,7 +342,6 @@ const UtilityPoles: React.FC = () => {
       const z = zStart + i * step;
       const y = calculateHeight(xPos, z);
       poleCoords.push([xPos, y + poleHeight * 0.9, z]);
-
       items.push(
         <group key={i} position={[xPos, y, z]}>
           <mesh position={[0, poleHeight/2, 0]} castShadow>
@@ -281,148 +364,103 @@ const UtilityPoles: React.FC = () => {
     for (let i = 0; i < poles.poleCoords.length - 1; i++) {
       const start = new THREE.Vector3(...poles.poleCoords[i]);
       const end = new THREE.Vector3(...poles.poleCoords[i+1]);
-      
       const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
       mid.y -= 0.5; // Sag
-      
       const curve = new THREE.CatmullRomCurve3([start, mid, end]);
       const points = curve.getPoints(10);
-      
       lines.push(
-        <Line 
-          key={`line-${i}`} 
-          points={points} 
-          color="black" 
-          lineWidth={1} 
-          opacity={0.7}
-          transparent
-        />
+        <Line key={`line-${i}`} points={points} color="black" lineWidth={1} opacity={0.7} transparent />
       );
     }
     return lines;
   }, [poles.poleCoords]);
 
-  return (
-    <group>
-      {poles.items}
-      {wires}
-    </group>
-  );
+  return <group>{poles.items}{wires}</group>;
 };
 
-// 5. WATER PLANE (Fixed Z-fighting)
+// 7. WATER PLANE (Existing)
 const Water: React.FC<{ level: number }> = ({ level }) => {
   return (
-    // Slightly reduced size (49.8 instead of 50) to prevent z-fighting with terrain walls
     <mesh position={[0, level / 2 - 5, 0]}> 
       <boxGeometry args={[49.8, level + 10, 49.8]} /> 
-      <meshPhysicalMaterial
-        color={COLORS.WATER}
-        transmission={0.9}
-        opacity={0.8}
-        transparent
-        roughness={0.2}
-        ior={1.33}
-        thickness={2}
-      />
+      <meshPhysicalMaterial color={COLORS.WATER} transmission={0.9} opacity={0.8} transparent roughness={0.2} ior={1.33} thickness={2} />
     </mesh>
   );
 };
 
-// 6. DAMAGED HOUSE LOGIC
+// 8. HOUSE (Existing)
 const House: React.FC<{ data: HouseData; waterLevel: number }> = ({ data, waterLevel }) => {
   const submergedDepth = Math.max(0, waterLevel - data.y);
   const isSubmerged = submergedDepth > 0.5;
   const isDeeplySubmerged = submergedDepth > 2.0;
-
   const width = 2;
   const depth = 2;
   const height = 2;
   const roofHeight = 1;
-
-  const damageState = useMemo(() => {
-    return {
+  const damageState = useMemo(() => ({
       tiltX: (Math.random() - 0.5) * 0.5,
       tiltZ: (Math.random() - 0.5) * 0.5,
       sinkY: -0.5,
       roofRot: (Math.random() - 0.5) * 0.8,
-    };
-  }, []);
-
+  }), []);
   const currentRotationX = isSubmerged ? damageState.tiltX : 0;
   const currentRotationZ = isSubmerged ? damageState.tiltZ : 0;
   const currentY = isSubmerged ? data.y + damageState.sinkY : data.y;
   const roofColor = isSubmerged ? COLORS.HOUSE_ROOF_WET : COLORS.HOUSE_ROOF;
-  
   const roofOffset = isSubmerged ? [0.2, -0.2, 0] : [0, 0, 0];
   const roofRotZ = isSubmerged ? damageState.roofRot : 0;
 
   return (
-    <group 
-      position={[data.x, currentY, data.z]} 
-      rotation={[currentRotationX, data.rotation, currentRotationZ]}
-    >
+    <group position={[data.x, currentY, data.z]} rotation={[currentRotationX, data.rotation, currentRotationZ]}>
       {isDeeplySubmerged && (
         <Float speed={5} rotationIntensity={0} floatIntensity={0.5}>
           <group position={[0, height + roofHeight + 3, 0]}>
-             <mesh>
-               <sphereGeometry args={[0.3]} />
-               <meshBasicMaterial color="red" />
-             </mesh>
+             <mesh><sphereGeometry args={[0.3]} /><meshBasicMaterial color="red" /></mesh>
              <pointLight intensity={1} color="red" distance={8} />
           </group>
         </Float>
       )}
-
       <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
         <boxGeometry args={[width, height, depth]} />
         <meshStandardMaterial color={COLORS.HOUSE_WALL} />
       </mesh>
-      
-      <group 
-        position={[0 + roofOffset[0], height + roofHeight / 2 + roofOffset[1], 0]} 
-        rotation={[0, 0, roofRotZ]}
-      >
-        <mesh castShadow>
-          <coneGeometry args={[width * 0.8, roofHeight, 4]} />
-          <meshStandardMaterial color={roofColor} />
-        </mesh>
+      <group position={[0 + roofOffset[0], height + roofHeight / 2 + roofOffset[1], 0]} rotation={[0, 0, roofRotZ]}>
+        <mesh castShadow><coneGeometry args={[width * 0.8, roofHeight, 4]} /><meshStandardMaterial color={roofColor} /></mesh>
       </group>
-      
-      <mesh position={[0, height * 0.4, width / 2 + 0.05]}>
-        <planeGeometry args={[0.6, 1.2]} />
-        <meshStandardMaterial color="#475569" />
-      </mesh>
+      <mesh position={[0, height * 0.4, width / 2 + 0.05]}><planeGeometry args={[0.6, 1.2]} /><meshStandardMaterial color="#475569" /></mesh>
     </group>
   );
 };
 
-const ValleyScene: React.FC<ValleySceneProps> = ({ waterLevel }) => {
+const ValleyScene: React.FC<ValleySceneProps> = ({ waterLevel, vegetationCoverage, isRaining }) => {
   return (
     <div className="w-full h-full">
-      {/* Logarithmic depth buffer helps with z-fighting in large scenes or close-ups */}
       <Canvas shadows gl={{ logarithmicDepthBuffer: true }} camera={{ position: [-18, 14, 18], fov: 45 }}>
-        <color attach="background" args={['#87CEEB']} />
+        <color attach="background" args={isRaining ? ['#475569'] : ['#87CEEB']} />
         
-        <ambientLight intensity={0.5} />
+        <ambientLight intensity={isRaining ? 0.3 : 0.5} />
         <directionalLight 
           position={[-10, 20, 5]} 
-          intensity={1.2} 
+          intensity={isRaining ? 0.6 : 1.2} 
           castShadow 
           shadow-mapSize={[2048, 2048]}
           shadow-bias={-0.0005}
         >
           <orthographicCamera attach="shadow-camera" args={[-30, 30, 30, -30]} />
         </directionalLight>
+
+        {isRaining && <fog attach="fog" args={['#475569', 10, 80]} />}
         
-        <Environment preset="city" />
+        <Environment preset={isRaining ? "night" : "city"} />
 
         <group>
           <Terrain />
+          <Vegetation coverage={vegetationCoverage} />
           <ScatteredRocks />
           <Crops />
           <UtilityPoles />
           <Water level={waterLevel} />
+          <Rain enabled={isRaining} />
           {HOUSE_POSITIONS.map((house) => (
             <House key={house.id} data={house} waterLevel={waterLevel} />
           ))}

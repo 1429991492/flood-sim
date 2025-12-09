@@ -1,7 +1,8 @@
 export interface SimulationState {
   waterLevel: number;
-  isFlooding: boolean;
-  floodSpeed: number;
+  rainfall: number; // in mm
+  vegetationCoverage: number; // 0 to 1
+  isRaining: boolean;
 }
 
 export interface HouseData {

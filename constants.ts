@@ -2,10 +2,12 @@
 
 export const SIMULATION_CONFIG = {
   MIN_WATER_LEVEL: 0,
-  MAX_WATER_LEVEL: 12,
+  MAX_WATER_LEVEL: 15, // Increased slightly to accommodate heavy rain scenarios
   TERRACE_HEIGHT: 5,
   RIVER_BED_HEIGHT: 0,
   FLOOD_SPEED_MULTIPLIER: 0.05,
+  MAX_RAINFALL: 500, // mm
+  MAX_VEGETATION_COUNT: 400,
 };
 
 export const COLORS = {
@@ -22,6 +24,9 @@ export const COLORS = {
   CROP_2: '#84cc16', // Light green crops
   POLE: '#78350f', // Wood
   ROCK: '#57534e', // Stone grey
+  TREE_LIGHT: '#4d7c0f', // Lime 700
+  TREE_DARK: '#14532d', // Green 900
+  RAIN: '#cbd5e1', // Slate 300 (light grey/white)
 };
 
 // Procedural generation of house positions on the terrace
