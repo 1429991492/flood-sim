@@ -14,8 +14,8 @@ export interface HouseData {
 }
 
 export enum FloodStatus {
-  SAFE = 'SAFE',
-  WARNING = 'WARNING',
-  CRITICAL = 'CRITICAL',
-  SUBMERGED = 'SUBMERGED'
+  SAFE = '安全',
+  WARNING = '警告',
+  CRITICAL = '危险',
+  SUBMERGED = '已淹没'
 }

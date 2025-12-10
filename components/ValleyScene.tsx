@@ -1,8 +1,6 @@
-
-
-import React, { useRef, useMemo, useLayoutEffect, useEffect } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { Canvas, useFrame, ThreeElements } from '@react-three/fiber';
-import { OrbitControls, Environment, Float, Line, Instance, Instances } from '@react-three/drei';
+import { OrbitControls, Environment, Float, Line, Instance, Instances, Billboard, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { COLORS, HOUSE_POSITIONS, SIMULATION_CONFIG } from '../constants';
 import { HouseData } from '../types';
@@ -232,6 +230,9 @@ const Rain: React.FC<{ enabled: boolean }> = ({ enabled }) => {
   const count = 1500;
   const meshRef = useRef<THREE.InstancedMesh>(null);
   
+  // Create dummy object once
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+
   // Initial positions
   const particles = useMemo(() => {
     const temp = [];
@@ -247,8 +248,6 @@ const Rain: React.FC<{ enabled: boolean }> = ({ enabled }) => {
 
   useFrame(() => {
     if (!meshRef.current || !enabled) return;
-
-    const dummy = new THREE.Object3D();
 
     particles.forEach((particle, i) => {
       // Update position
@@ -464,6 +463,16 @@ const ValleyScene: React.FC<ValleySceneProps> = ({ waterLevel, vegetationCoverag
           {HOUSE_POSITIONS.map((house) => (
             <House key={house.id} data={house} waterLevel={waterLevel} />
           ))}
+          <Billboard position={[0, 6, 0]}>
+            <Html transform center pointerEvents="none">
+              <div 
+                className="text-4xl font-bold text-white whitespace-nowrap drop-shadow-md select-none"
+                style={{ textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}
+              >
+                姚江
+              </div>
+            </Html>
+          </Billboard>
         </group>
 
         <OrbitControls 

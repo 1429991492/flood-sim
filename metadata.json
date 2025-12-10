@@ -1,5 +1,5 @@
 {
-  "name": "3D Valley Flood Simulator",
-  "description": "A 3D interactive simulation of a river valley with a terrace and housing, demonstrating the impact of rising water levels and potential flood disasters.",
+  "name": "3D河谷洪水模拟器",
+  "description": "一个展示河谷、阶地及房屋的三维互动模拟，演示水位上升及潜在洪水灾害的影响。",
   "requestFramePermissions": []
 }
