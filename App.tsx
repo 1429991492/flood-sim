@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import ValleyScene from './components/ValleyScene';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+const ValleyScene = React.lazy(() => import('./components/ValleyScene'));
 import ControlPanel from './components/ControlPanel';
 import { SimStage } from './types';
 
@@ -21,6 +21,9 @@ const App: React.FC = () => {
   const [hydroAfter, setHydroAfter] = useState({ peakRise: 0, drainRate: 0 });
   const [curveBase, setCurveBase] = useState<Array<[number, number]>>([]);
   const [curveIntervention, setCurveIntervention] = useState<Array<[number, number]>>([]);
+
+  const [showScene, setShowScene] = useState<boolean>(false);
+  const workerRef = useRef<Worker | null>(null);
 
   // Refs for animation loop to access latest state without re-triggering effect constantly
   const stateRef = useRef({
@@ -47,6 +50,19 @@ const App: React.FC = () => {
       lastTime: stateRef.current.lastTime
     };
   }, [waterLevel, simTime, rainfall, vegetationCoverage, isSimulating, drainageEnabled, simStage]);
+
+  useEffect(() => {
+    const idle = (cb: () => void) => {
+      // @ts-ignore
+      if (typeof window !== 'undefined' && window.requestIdleCallback) {
+        // @ts-ignore
+        window.requestIdleCallback(cb);
+      } else {
+        setTimeout(cb, 200);
+      }
+    };
+    idle(() => setShowScene(true));
+  }, []);
 
   // --- Physics Constants ---
   const BASE_LEVEL = 1.5;
@@ -119,6 +135,20 @@ const App: React.FC = () => {
     return () => cancelAnimationFrame(animationFrameId);
   }, []);
 
+  useEffect(() => {
+    // @ts-ignore
+    const w = new Worker(new URL('./workers/curveWorker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = w;
+    w.onmessage = (ev: MessageEvent<{ base: Array<[number, number]>; intervention: Array<[number, number]> }>) => {
+      setCurveBase(ev.data.base);
+      setCurveIntervention(ev.data.intervention);
+    };
+    return () => {
+      w.terminate();
+      workerRef.current = null;
+    };
+  }, []);
+
   const startOrContinue = useCallback(() => {
     if (simStage === SimStage.IDLE) {
       setSimTime(0);
@@ -178,44 +208,34 @@ const App: React.FC = () => {
     const afterPeakRise = (rainfall / 500) * 14 * afterCoeff * (drainageEnabled ? 0.85 : 1.0);
     const afterDrainRate = (0.3 + vegetationCoverage * 0.8 + (drainageEnabled ? 2.5 : 0)) + (rainGardenEnabled ? 0.6 : 0) + (permeablePavingEnabled ? 0.7 : 0);
     setHydroAfter({ peakRise: afterPeakRise, drainRate: afterDrainRate });
-
-    const computeCurve = (useGarden: boolean, usePaving: boolean, useDrainage: boolean) => {
-      const points: Array<[number, number]> = [];
-      const hours = 48; // 0-48h
-      const baseLevel = BASE_LEVEL;
-      const rc = baseRunoffCoeff * (useGarden ? 0.8 : 1.0) * (usePaving ? 0.9 : 1.0);
-      const riseRate = ((rainfall / 500) * 14 * rc * (useDrainage ? 0.85 : 1.0)) / 24;
-      const drain = (0.3 + vegetationCoverage * 0.8 + (useDrainage ? 2.5 : 0)) + (useGarden ? 0.6 : 0) + (usePaving ? 0.7 : 0);
-      let level = baseLevel;
-      for (let h=0; h<=hours; h++) {
-        if (h <= 24) {
-          level = baseLevel + riseRate * h;
-        } else {
-          const t = h - 24;
-          level = baseLevel + riseRate * 24 - drain * t;
-          if (level < baseLevel) level = baseLevel;
-        }
-        points.push([h, level]);
-      }
-      return points;
-    };
-
-    setCurveBase(computeCurve(false, false, false));
-    setCurveIntervention(computeCurve(rainGardenEnabled, permeablePavingEnabled, drainageEnabled));
+    if (workerRef.current) {
+      workerRef.current.postMessage({
+        rainfall,
+        vegetationCoverage,
+        drainageEnabled,
+        rainGardenEnabled,
+        permeablePavingEnabled,
+        baseLevel: BASE_LEVEL
+      });
+    }
   }, [rainfall, vegetationCoverage, drainageEnabled, rainGardenEnabled, permeablePavingEnabled]);
 
   return (
     <div className="relative w-screen h-screen bg-slate-900 overflow-hidden">
       <div className="absolute inset-0">
-        <ValleyScene 
-          waterLevel={waterLevel} 
-          vegetationCoverage={vegetationCoverage}
-          isRaining={isSimulating && simTime <= 24}
-          drainageEnabled={drainageEnabled}
-          showPeakIndicator={simStage === SimStage.PAUSED_PEAK}
-          rainGardenEnabled={rainGardenEnabled}
-          permeablePavingEnabled={permeablePavingEnabled}
-        />
+        {showScene ? (
+          <Suspense fallback={<div className="w-full h-full flex items-center justify-center text-slate-300">加载场景中...</div>}>
+            <ValleyScene 
+              waterLevel={waterLevel} 
+              vegetationCoverage={vegetationCoverage}
+              isRaining={isSimulating && simTime <= 24}
+              drainageEnabled={drainageEnabled}
+              showPeakIndicator={simStage === SimStage.PAUSED_PEAK}
+              rainGardenEnabled={rainGardenEnabled}
+              permeablePavingEnabled={permeablePavingEnabled}
+            />
+          </Suspense>
+        ) : null}
       </div>
 
       <ControlPanel 
@@ -245,3 +265,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+ 

@@ -138,7 +138,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             max={SIMULATION_CONFIG.MAX_RAINFALL}
             step={10}
             value={rainfall}
-            onChange={(e) => setRainfall(parseFloat(e.target.value))}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value);
+              React.startTransition(() => setRainfall(val));
+            }}
             className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 hover:accent-blue-400 transition-all"
           />
           <div className="flex justify-between text-xs text-slate-500 mt-1">
@@ -164,7 +167,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             max={1}
             step={0.05}
             value={vegetationCoverage}
-            onChange={(e) => setVegetationCoverage(parseFloat(e.target.value))}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value);
+              React.startTransition(() => setVegetationCoverage(val));
+            }}
             className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-green-500 hover:accent-green-400 transition-all"
           />
         </div>

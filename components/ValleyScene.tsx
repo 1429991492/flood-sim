@@ -84,7 +84,7 @@ const Terrain: React.FC = () => {
     const width = 50;
     const depth = 50;
     const heightSegmentBase = 10; // Initial thickness
-    const segments = 120; // Increased resolution for better erosion details
+    const segments = 90;
     
     // Create a box. We will pull the top vertices up to the terrain height.
     const geo = new THREE.BoxGeometry(width, heightSegmentBase, depth, segments, 1, segments);
@@ -234,7 +234,7 @@ const Vegetation: React.FC<{ coverage: number }> = ({ coverage }) => {
 // 3. RAIN SYSTEM (Particles)
 const Rain: React.FC<{ enabled: boolean }> = ({ enabled }) => {
   const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-  const count = isMobile ? 800 : 1500;
+  const count = isMobile ? 400 : 1000;
   const meshRef = useRef<THREE.InstancedMesh>(null);
   
   // Create dummy object once
@@ -607,9 +607,8 @@ const PermeablePaving: React.FC<{ enabled: boolean }> = ({ enabled }) => {
 const ValleyScene: React.FC<ValleySceneProps> = ({ waterLevel, vegetationCoverage, isRaining, drainageEnabled, showPeakIndicator, rainGardenEnabled, permeablePavingEnabled }) => {
   const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full" style={{ willChange: 'transform' }}>
       <Canvas 
-        shadows 
         dpr={[1, isMobile ? 1.5 : 2]}
         gl={{ logarithmicDepthBuffer: true, antialias: !isMobile, powerPreference: 'high-performance' }} 
         camera={{ position: [-18, 14, 18], fov: 45 }}
@@ -619,17 +618,12 @@ const ValleyScene: React.FC<ValleySceneProps> = ({ waterLevel, vegetationCoverag
         <ambientLight intensity={isRaining ? 0.3 : 0.5} />
         <directionalLight 
           position={[-10, 20, 5]} 
-          intensity={isRaining ? 0.6 : 1.2} 
-          castShadow 
-          shadow-mapSize={[isMobile ? 1024 : 2048, isMobile ? 1024 : 2048]}
-          shadow-bias={-0.0005}
-        >
-          <orthographicCamera attach="shadow-camera" args={[-30, 30, 30, -30]} />
-        </directionalLight>
+          intensity={isRaining ? 0.6 : 1.0}
+        />
 
         
         
-        <Environment preset={isRaining ? "night" : "city"} />
+        
 
         <group>
           <Terrain />
@@ -671,6 +665,8 @@ const ValleyScene: React.FC<ValleySceneProps> = ({ waterLevel, vegetationCoverag
           maxPolarAngle={Math.PI / 2 - 0.05}
           minDistance={10}
           maxDistance={60}
+          enableDamping
+          dampingFactor={0.08}
         />
       </Canvas>
     </div>
