@@ -19,3 +19,17 @@ export enum FloodStatus {
   CRITICAL = '危险',
   SUBMERGED = '已淹没'
 }
+
+export enum SimStage {
+  IDLE = 'idle',
+  RISING = 'rising',
+  PAUSED_PEAK = 'paused_at_peak',
+  RECEDING = 'receding'
+}
+
+export interface OperationRecord {
+  id: string;
+  type: '建设雨水花园' | '铺设透水砖' | '撤销' | '重做';
+  timestamp: number;
+  description: string;
+}

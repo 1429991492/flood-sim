@@ -2,16 +2,25 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ValleyScene from './components/ValleyScene';
 import ControlPanel from './components/ControlPanel';
+import { SimStage } from './types';
 
 const App: React.FC = () => {
   // --- Simulation Inputs ---
   const [rainfall, setRainfall] = useState<number>(250); // mm (default moderate rain)
   const [vegetationCoverage, setVegetationCoverage] = useState<number>(0.5); // 0 to 1
+  const [drainageEnabled, setDrainageEnabled] = useState<boolean>(false);
+  const [rainGardenEnabled, setRainGardenEnabled] = useState<boolean>(false);
+  const [permeablePavingEnabled, setPermeablePavingEnabled] = useState<boolean>(false);
   
   // --- Simulation State ---
   const [waterLevel, setWaterLevel] = useState<number>(1.5); 
   const [simTime, setSimTime] = useState<number>(0); // In Hours
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
+  const [simStage, setSimStage] = useState<SimStage>(SimStage.IDLE);
+  const [hydroBefore, setHydroBefore] = useState({ peakRise: 0, drainRate: 0 });
+  const [hydroAfter, setHydroAfter] = useState({ peakRise: 0, drainRate: 0 });
+  const [curveBase, setCurveBase] = useState<Array<[number, number]>>([]);
+  const [curveIntervention, setCurveIntervention] = useState<Array<[number, number]>>([]);
 
   // Refs for animation loop to access latest state without re-triggering effect constantly
   const stateRef = useRef({
@@ -19,13 +28,25 @@ const App: React.FC = () => {
     simTime: 0,
     rainfall,
     vegetationCoverage,
-    isSimulating
+    isSimulating,
+    drainageEnabled,
+    simStage,
+    lastTime: performance.now()
   });
 
   // Sync refs
   useEffect(() => {
-    stateRef.current = { waterLevel, simTime, rainfall, vegetationCoverage, isSimulating };
-  }, [waterLevel, simTime, rainfall, vegetationCoverage, isSimulating]);
+    stateRef.current = { 
+      waterLevel, 
+      simTime, 
+      rainfall, 
+      vegetationCoverage, 
+      isSimulating,
+      drainageEnabled,
+      simStage,
+      lastTime: stateRef.current.lastTime
+    };
+  }, [waterLevel, simTime, rainfall, vegetationCoverage, isSimulating, drainageEnabled, simStage]);
 
   // --- Physics Constants ---
   const BASE_LEVEL = 1.5;
@@ -34,78 +55,154 @@ const App: React.FC = () => {
   // Core Physics Loop
   useEffect(() => {
     let animationFrameId: number;
-    let lastTime = performance.now();
 
     const loop = (now: number) => {
-      const dtMs = now - lastTime;
-      lastTime = now;
-      const dtSeconds = Math.min(dtMs / 1000, 0.1); // Cap dt to avoid jumps
+      const prev = stateRef.current.lastTime;
+      const dtMs = now - prev;
+      stateRef.current.lastTime = now;
+      const dtSeconds = Math.min(dtMs / 1000, 0.1);
       const dtHours = dtSeconds * SIM_SPEED;
 
       if (stateRef.current.isSimulating) {
-        const { simTime, waterLevel, rainfall, vegetationCoverage } = stateRef.current;
-        
+        const { simTime, waterLevel, rainfall, vegetationCoverage, drainageEnabled, simStage } = stateRef.current;
         let newWaterLevel = waterLevel;
-        const newSimTime = simTime + dtHours;
+        let newSimTime = simTime;
 
-        // --- Phase 1: Raining (0 - 24 Hours) ---
-        if (simTime < 24) {
-          // Calculate Target Peak Rise
-          // Formula: 500mm rain -> ~12m rise if 0 vegetation.
-          // Vegetation reduces the runoff coefficient.
-          // 0% Veg -> 100% Runoff impact
-          // 100% Veg -> 40% Runoff impact (60% absorption/mitigation)
-          const runoffCoeff = 1.0 - (vegetationCoverage * 0.6);
-          const rainIntensity = rainfall / 500; // 0 to 1 scale
-          
-          const maxPotentialRise = 14; // Meters
-          const totalRise = rainIntensity * maxPotentialRise * runoffCoeff;
-          
-          // Rate of rise (meters per hour)
-          const riseRate = totalRise / 24; 
-          
-          newWaterLevel += riseRate * dtHours;
-        } 
-        // --- Phase 2: Receding (> 24 Hours) ---
-        else {
-          // Drainage Speed
-          // Base drainage + Bonus from Vegetation (roots help infiltration)
-          const baseDrain = 0.3; // m/h
-          const vegBonus = vegetationCoverage * 0.8; // High veg drains faster
-          const totalDrain = baseDrain + vegBonus;
-          
+        if (simStage === SimStage.RISING) {
+          let runoffCoeff = 1.0 - (vegetationCoverage * 0.6);
+          if (rainGardenEnabled) runoffCoeff *= 0.8; // 雨水花园减小径流
+          const drainageMitigation = drainageEnabled ? 0.85 : 1.0;
+          const pavingMitigation = permeablePavingEnabled ? 0.9 : 1.0; // 透水砖进一步缓和
+          const rainIntensity = rainfall / 500;
+          const maxPotentialRise = 14;
+          const totalRise = rainIntensity * maxPotentialRise * runoffCoeff * drainageMitigation * pavingMitigation;
+          const riseRate = totalRise / 24;
+
+          const effectiveHours = Math.min(dtHours, Math.max(0, 24 - simTime));
+          newWaterLevel += riseRate * effectiveHours;
+          newSimTime = simTime + effectiveHours;
+
+          if (newSimTime >= 24) {
+            setIsSimulating(false);
+            setSimStage(SimStage.PAUSED_PEAK);
+            setSimTime(24);
+            setWaterLevel(newWaterLevel);
+          } else {
+            setSimTime(newSimTime);
+            setWaterLevel(newWaterLevel);
+          }
+        } else if (simStage === SimStage.RECEDING) {
+          const baseDrain = 0.3;
+          const vegBonus = vegetationCoverage * 0.8;
+          const pipeBonus = drainageEnabled ? 2.5 : 0;
+          const gardenBonus = rainGardenEnabled ? 0.6 : 0; // 花园促进回落
+          const pavingBonus = permeablePavingEnabled ? 0.7 : 0; // 透水砖促进渗流
+          const totalDrain = baseDrain + vegBonus + pipeBonus + gardenBonus + pavingBonus;
+
           newWaterLevel -= totalDrain * dtHours;
-          
-          // Clamp to base level
-          if (newWaterLevel < BASE_LEVEL) {
-             newWaterLevel = BASE_LEVEL;
-             // Stop simulation if we are back to normal
-             setIsSimulating(false);
+          if (newWaterLevel <= BASE_LEVEL) {
+            newWaterLevel = BASE_LEVEL;
+            setIsSimulating(false);
+            setSimStage(SimStage.IDLE);
+            setSimTime(0);
+            setWaterLevel(newWaterLevel);
+          } else {
+            setWaterLevel(newWaterLevel);
           }
         }
-
-        setSimTime(newSimTime);
-        setWaterLevel(newWaterLevel);
       }
-      
+
       animationFrameId = requestAnimationFrame(loop);
     };
 
     animationFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animationFrameId);
-  }, []); // Empty dependency array, relies on refs
-
-  const startSimulation = useCallback(() => {
-    setSimTime(0);
-    setWaterLevel(BASE_LEVEL);
-    setIsSimulating(true);
   }, []);
+
+  const startOrContinue = useCallback(() => {
+    if (simStage === SimStage.IDLE) {
+      setSimTime(0);
+      setWaterLevel(BASE_LEVEL);
+      setSimStage(SimStage.RISING);
+      stateRef.current.lastTime = performance.now();
+      setIsSimulating(true);
+    } else if (simStage === SimStage.PAUSED_PEAK) {
+      setSimStage(SimStage.RECEDING);
+      stateRef.current.lastTime = performance.now();
+      setIsSimulating(true);
+    }
+  }, [simStage]);
 
   const resetSimulation = useCallback(() => {
     setIsSimulating(false);
     setSimTime(0);
     setWaterLevel(BASE_LEVEL);
+    setSimStage(SimStage.IDLE);
   }, []);
+
+  const playClickSound = useCallback(() => {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 660;
+    gain.gain.value = 0.05;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    setTimeout(() => { osc.stop(); ctx.close(); }, 120);
+  }, []);
+
+  const toggleRainGarden = useCallback(() => {
+    playClickSound();
+    setRainGardenEnabled((v) => {
+      const nv = !v;
+      return nv;
+    });
+  }, [playClickSound]);
+
+  const togglePermeablePaving = useCallback(() => {
+    playClickSound();
+    setPermeablePavingEnabled((v) => {
+      const nv = !v;
+      return nv;
+    });
+  }, [playClickSound]);
+
+  useEffect(() => {
+    const baseRunoffCoeff = 1.0 - (vegetationCoverage * 0.6);
+    const basePeakRise = (rainfall / 500) * 14 * baseRunoffCoeff * 1.0; // 改造前不含排水系统
+    const baseDrainRate = 0.3 + vegetationCoverage * 0.8; // 改造前不含排水系统
+    setHydroBefore({ peakRise: basePeakRise, drainRate: baseDrainRate });
+
+    let afterCoeff = baseRunoffCoeff * (rainGardenEnabled ? 0.8 : 1.0) * (permeablePavingEnabled ? 0.9 : 1.0);
+    const afterPeakRise = (rainfall / 500) * 14 * afterCoeff * (drainageEnabled ? 0.85 : 1.0);
+    const afterDrainRate = (0.3 + vegetationCoverage * 0.8 + (drainageEnabled ? 2.5 : 0)) + (rainGardenEnabled ? 0.6 : 0) + (permeablePavingEnabled ? 0.7 : 0);
+    setHydroAfter({ peakRise: afterPeakRise, drainRate: afterDrainRate });
+
+    const computeCurve = (useGarden: boolean, usePaving: boolean, useDrainage: boolean) => {
+      const points: Array<[number, number]> = [];
+      const hours = 48; // 0-48h
+      const baseLevel = BASE_LEVEL;
+      const rc = baseRunoffCoeff * (useGarden ? 0.8 : 1.0) * (usePaving ? 0.9 : 1.0);
+      const riseRate = ((rainfall / 500) * 14 * rc * (useDrainage ? 0.85 : 1.0)) / 24;
+      const drain = (0.3 + vegetationCoverage * 0.8 + (useDrainage ? 2.5 : 0)) + (useGarden ? 0.6 : 0) + (usePaving ? 0.7 : 0);
+      let level = baseLevel;
+      for (let h=0; h<=hours; h++) {
+        if (h <= 24) {
+          level = baseLevel + riseRate * h;
+        } else {
+          const t = h - 24;
+          level = baseLevel + riseRate * 24 - drain * t;
+          if (level < baseLevel) level = baseLevel;
+        }
+        points.push([h, level]);
+      }
+      return points;
+    };
+
+    setCurveBase(computeCurve(false, false, false));
+    setCurveIntervention(computeCurve(rainGardenEnabled, permeablePavingEnabled, drainageEnabled));
+  }, [rainfall, vegetationCoverage, drainageEnabled, rainGardenEnabled, permeablePavingEnabled]);
 
   return (
     <div className="relative w-screen h-screen bg-slate-900 overflow-hidden">
@@ -114,6 +211,10 @@ const App: React.FC = () => {
           waterLevel={waterLevel} 
           vegetationCoverage={vegetationCoverage}
           isRaining={isSimulating && simTime <= 24}
+          drainageEnabled={drainageEnabled}
+          showPeakIndicator={simStage === SimStage.PAUSED_PEAK}
+          rainGardenEnabled={rainGardenEnabled}
+          permeablePavingEnabled={permeablePavingEnabled}
         />
       </div>
 
@@ -122,11 +223,22 @@ const App: React.FC = () => {
         setRainfall={setRainfall}
         vegetationCoverage={vegetationCoverage}
         setVegetationCoverage={setVegetationCoverage}
+        drainageEnabled={drainageEnabled}
+        setDrainageEnabled={setDrainageEnabled}
         waterLevel={waterLevel}
         simTime={simTime}
         isSimulating={isSimulating}
-        startSimulation={startSimulation}
+        simStage={simStage}
+        startOrContinue={startOrContinue}
         reset={resetSimulation}
+        rainGardenEnabled={rainGardenEnabled}
+        toggleRainGarden={toggleRainGarden}
+        permeablePavingEnabled={permeablePavingEnabled}
+        togglePermeablePaving={togglePermeablePaving}
+        hydroBefore={hydroBefore}
+        hydroAfter={hydroAfter}
+        curveBase={curveBase}
+        curveIntervention={curveIntervention}
       />
     </div>
   );

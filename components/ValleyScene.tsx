@@ -1,5 +1,5 @@
 import React, { useRef, useMemo } from 'react';
-import { Canvas, useFrame, ThreeElements } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Environment, Float, Line, Instance, Instances, Billboard, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { COLORS, HOUSE_POSITIONS, SIMULATION_CONFIG } from '../constants';
@@ -8,7 +8,9 @@ import { HouseData } from '../types';
 // Add this to make TS happy if the global types aren't picking it up
 declare global {
   namespace JSX {
-    interface IntrinsicElements extends ThreeElements {}
+    interface IntrinsicElements {
+      [elemName: string]: any;
+    }
   }
 }
 
@@ -16,6 +18,10 @@ interface ValleySceneProps {
   waterLevel: number;
   vegetationCoverage: number;
   isRaining: boolean;
+  drainageEnabled: boolean;
+  showPeakIndicator?: boolean;
+  rainGardenEnabled?: boolean;
+  permeablePavingEnabled?: boolean;
 }
 
 // Pseudo-random noise function for organic variety
@@ -227,7 +233,8 @@ const Vegetation: React.FC<{ coverage: number }> = ({ coverage }) => {
 
 // 3. RAIN SYSTEM (Particles)
 const Rain: React.FC<{ enabled: boolean }> = ({ enabled }) => {
-  const count = 1500;
+  const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  const count = isMobile ? 800 : 1500;
   const meshRef = useRef<THREE.InstancedMesh>(null);
   
   // Create dummy object once
@@ -377,7 +384,63 @@ const UtilityPoles: React.FC = () => {
   return <group>{poles.items}{wires}</group>;
 };
 
-// 7. WATER PLANE (Existing)
+// 7. DRAINAGE SYSTEM (New)
+const DrainageSystem: React.FC<{ enabled: boolean }> = ({ enabled }) => {
+  if (!enabled) return null;
+
+  const infrastructure = useMemo(() => {
+    const elements = [];
+    
+    // Manholes scattered near houses on the terrace
+    const manholePositions = [
+      [8, -3], [10, 2], [7, 6], [9, -8], [11, 12], [8.5, -12], [12, 5], [7.5, 15]
+    ];
+    
+    manholePositions.forEach((pos, idx) => {
+      const [x, z] = pos;
+      const y = calculateHeight(x, z);
+      elements.push(
+        <mesh key={`manhole-${idx}`} position={[x, y + 0.05, z]} receiveShadow rotation={[-Math.PI/2, 0, 0]}>
+          <circleGeometry args={[0.35, 12]} />
+          <meshStandardMaterial color="#2d3748" metalness={0.6} roughness={0.4} />
+          {/* Detail ring */}
+          <mesh position={[0, 0, 0.02]}>
+             <ringGeometry args={[0.25, 0.3, 12]} />
+             <meshStandardMaterial color="#1a202c" />
+          </mesh>
+        </mesh>
+      );
+    });
+
+    // Outlets pipes along the bank (approx x = 5)
+    // Points where the terrace meets the river
+    const outletPositions = [-10, -2, 4, 12];
+    outletPositions.forEach((z, idx) => {
+      const x = 5.2; // Bank edge
+      const y = calculateHeight(x, z) - 1.5; // Slightly below bank top
+      elements.push(
+        <group key={`pipe-${idx}`} position={[x, y, z]} rotation={[0, 0, Math.PI/2]}>
+          <mesh castShadow>
+            <cylinderGeometry args={[0.3, 0.3, 2, 8]} />
+            <meshStandardMaterial color="#4a5568" />
+          </mesh>
+          {/* Dark inner part representing hole */}
+          <mesh position={[0, 1.01, 0]} rotation={[Math.PI/2, 0, 0]}>
+             <circleGeometry args={[0.25, 8]} />
+             <meshBasicMaterial color="#000" />
+          </mesh>
+        </group>
+      );
+    });
+
+    return elements;
+  }, []);
+
+  return <group>{infrastructure}</group>;
+};
+
+
+// 8. WATER PLANE (Existing)
 const Water: React.FC<{ level: number }> = ({ level }) => {
   return (
     <mesh position={[0, level / 2 - 5, 0]}> 
@@ -387,7 +450,7 @@ const Water: React.FC<{ level: number }> = ({ level }) => {
   );
 };
 
-// 8. HOUSE (Existing)
+// 9. HOUSE (Existing)
 const House: React.FC<{ data: HouseData; waterLevel: number }> = ({ data, waterLevel }) => {
   const submergedDepth = Math.max(0, waterLevel - data.y);
   const isSubmerged = submergedDepth > 0.5;
@@ -431,10 +494,126 @@ const House: React.FC<{ data: HouseData; waterLevel: number }> = ({ data, waterL
   );
 };
 
-const ValleyScene: React.FC<ValleySceneProps> = ({ waterLevel, vegetationCoverage, isRaining }) => {
+// 10. Rain Garden on Terrace (3x3m)
+const RainGarden: React.FC = () => {
+  const x = 9;
+  const z = -12;
+  const y = calculateHeight(x, z);
+  const width = 3;
+  const depth = 3;
+  const wallH = 0.6;
+  const waterH = 0.4;
+  return (
+    <group position={[x, y, z]}>
+      {/* Basin walls */}
+      <mesh position={[0, wallH/2, 0]} receiveShadow>
+        <boxGeometry args={[width, wallH, depth]} />
+        <meshStandardMaterial color="#64748b" roughness={1} />
+      </mesh>
+      {/* Inner water */}
+      <mesh position={[0, waterH/2, 0]}>
+        <boxGeometry args={[width*0.9, waterH, depth*0.9]} />
+        <meshPhysicalMaterial color={COLORS.WATER} transmission={0.9} opacity={0.6} transparent roughness={0.2} ior={1.33} thickness={1} />
+      </mesh>
+      {/* Water level indicator */}
+      <group position={[width/2 + 0.3, 0, 0]}>
+        <mesh position={[0, wallH/2, 0]}>
+          <cylinderGeometry args={[0.05, 0.05, wallH, 8]} />
+          <meshStandardMaterial color="#22c55e" />
+        </mesh>
+        <Billboard position={[0, wallH + 0.2, 0]}>
+          <Html center>
+            <div className="px-1 py-0.5 rounded bg-green-900/70 border border-green-600/60 text-green-200 text-[10px] font-mono">花园水位</div>
+          </Html>
+        </Billboard>
+      </group>
+    </group>
+  );
+};
+
+// 11. Permeable Paving area on Terrace
+const PermeablePaving: React.FC<{ enabled: boolean }> = ({ enabled }) => {
+  const x = 12.5;
+  const z = 8;
+  const y = calculateHeight(x, z);
+  const size = 4;
+  const layerH = 0.4;
+  const particleCount = enabled ? 120 : 0;
+  const partRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const particles = useMemo(() => {
+    const arr: {x:number;y:number;z:number;speed:number}[] = [];
+    for (let i=0;i<particleCount;i++) {
+      arr.push({ x: (Math.random()-0.5)*size*0.9, y: 0.3+Math.random()*0.2, z: (Math.random()-0.5)*size*0.9, speed: 0.01+Math.random()*0.02 });
+    }
+    return arr;
+  }, [particleCount, size]);
+  useFrame(() => {
+    if (!partRef.current || !enabled) return;
+    particles.forEach((p,i) => {
+      p.y -= p.speed;
+      if (p.y < -layerH) { p.y = 0.3+Math.random()*0.2; }
+      dummy.position.set(p.x, p.y, p.z);
+      dummy.scale.set(0.03, 0.03, 0.03);
+      dummy.updateMatrix();
+      partRef.current!.setMatrixAt(i, dummy.matrix);
+    });
+    partRef.current.instanceMatrix.needsUpdate = true;
+  });
+  return (
+    <group position={[x, y, z]}>
+      {/* Surface */}
+      <mesh position={[0, 0.02, 0]} receiveShadow>
+        <boxGeometry args={[size, 0.04, size]} />
+        <meshStandardMaterial color={enabled ? '#d4d4d8' : '#374151'} roughness={enabled ? 0.9 : 1} />
+      </mesh>
+      {/* Porous texture hint: small grid blocks when enabled */}
+      {enabled && (
+        <group>
+          {Array.from({length:8}).map((_,i) => (
+            Array.from({length:8}).map((_,j) => (
+              <mesh key={`p-${i}-${j}`} position={[(-size/2)+0.25+i*0.5, 0.05, (-size/2)+0.25+j*0.5]}>
+                <boxGeometry args={[0.4, 0.02, 0.4]} />
+                <meshStandardMaterial color="#e5e7eb" />
+              </mesh>
+            ))
+          ))}
+        </group>
+      )}
+      {/* Label */}
+      <Billboard position={[0, 0.5, size/2 + 0.2]}>
+        <Html center>
+          <div className={`px-2 py-1 rounded text-[10px] font-mono ${enabled ? 'bg-blue-900/70 border border-blue-600/60 text-blue-200' : 'bg-slate-900/70 border border-slate-700/60 text-slate-300'}`}>{enabled ? '透水' : '不透水'}</div>
+        </Html>
+      </Billboard>
+      {/* Storage layer */}
+      {enabled && (
+        <mesh position={[0, -layerH/2, 0]}>
+          <boxGeometry args={[size*0.9, layerH, size*0.9]} />
+          <meshPhysicalMaterial color="#60a5fa" opacity={0.35} transparent transmission={0.8} />
+        </mesh>
+      )}
+      {/* Seepage particles */}
+      {enabled && (
+        <instancedMesh ref={partRef} args={[undefined, undefined, particleCount]}>
+          <sphereGeometry args={[0.05, 6, 6]} />
+          <meshBasicMaterial color="#93c5fd" />
+        </instancedMesh>
+      )}
+    </group>
+  );
+};
+
+const ValleyScene: React.FC<ValleySceneProps> = ({ waterLevel, vegetationCoverage, isRaining, drainageEnabled, showPeakIndicator, rainGardenEnabled, permeablePavingEnabled }) => {
+  const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
   return (
     <div className="w-full h-full">
-      <Canvas shadows gl={{ logarithmicDepthBuffer: true }} camera={{ position: [-18, 14, 18], fov: 45 }}>
+      <Canvas 
+        shadows 
+        dpr={[1, isMobile ? 1.5 : 2]}
+        gl={{ logarithmicDepthBuffer: true, antialias: !isMobile, powerPreference: 'high-performance' }} 
+        camera={{ position: [-18, 14, 18], fov: 45 }}
+      >
         <color attach="background" args={isRaining ? ['#475569'] : ['#87CEEB']} />
         
         <ambientLight intensity={isRaining ? 0.3 : 0.5} />
@@ -442,13 +621,13 @@ const ValleyScene: React.FC<ValleySceneProps> = ({ waterLevel, vegetationCoverag
           position={[-10, 20, 5]} 
           intensity={isRaining ? 0.6 : 1.2} 
           castShadow 
-          shadow-mapSize={[2048, 2048]}
+          shadow-mapSize={[isMobile ? 1024 : 2048, isMobile ? 1024 : 2048]}
           shadow-bias={-0.0005}
         >
           <orthographicCamera attach="shadow-camera" args={[-30, 30, 30, -30]} />
         </directionalLight>
 
-        {isRaining && <fog attach="fog" args={['#475569', 10, 80]} />}
+        
         
         <Environment preset={isRaining ? "night" : "city"} />
 
@@ -458,7 +637,19 @@ const ValleyScene: React.FC<ValleySceneProps> = ({ waterLevel, vegetationCoverag
           <ScatteredRocks />
           <Crops />
           <UtilityPoles />
+          <DrainageSystem enabled={drainageEnabled} />
           <Water level={waterLevel} />
+          {rainGardenEnabled && <RainGarden />}
+          <PermeablePaving enabled={!!permeablePavingEnabled} />
+          {showPeakIndicator && (
+            <Billboard position={[0, waterLevel + 0.8, 0]}>
+              <Html center>
+                <div className="px-2 py-1 rounded bg-blue-900/80 border border-blue-500/60 text-blue-200 text-xs font-mono shadow-md">
+                  最高水位 {waterLevel.toFixed(2)}m
+                </div>
+              </Html>
+            </Billboard>
+          )}
           <Rain enabled={isRaining} />
           {HOUSE_POSITIONS.map((house) => (
             <House key={house.id} data={house} waterLevel={waterLevel} />
